@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>연구비 확보 게임 - 조이스틱 버전</title>
+    <title>연구비 확보 게임 - 랭킹 & 아이템 버전</title>
     <style>
         body { 
             margin: 0; padding: 10px; 
@@ -11,7 +11,7 @@
             display: flex; justify-content: center; align-items: center; 
             min-height: 100vh; font-family: 'Malgun Gothic', sans-serif; 
             overflow: hidden; touch-action: none; 
-            position: relative; /* 버튼 absolute 기준점 */
+            position: relative;
         }
         canvas { 
             border: 4px solid #fff; border-radius: 15px; 
@@ -26,44 +26,32 @@
             z-index: 10; pointer-events: none; 
         }
         
-        /* 🎮 모바일 조이스틱 버튼 스타일 */
         #mobile-controls {
-            position: absolute;
-            bottom: 0; left: 0;
+            position: absolute; bottom: 0; left: 0;
             width: 100%; height: 100%;
-            pointer-events: none; /* 캔버스 클릭은 통과시킴 */
-            z-index: 20;
+            pointer-events: none; z-index: 20;
         }
         .control-btn {
-            position: absolute;
-            pointer-events: auto; /* 버튼만 클릭 가능 */
+            position: absolute; pointer-events: auto;
             background: rgba(255, 255, 255, 0.3);
             border: 3px solid rgba(255, 255, 255, 0.8);
-            border-radius: 15px;
-            color: white;
-            font-size: 40px;
-            font-weight: bold;
-            width: 80px;
-            height: 80px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            user-select: none;
-            -webkit-user-select: none;
-            touch-action: none;
+            border-radius: 15px; color: white;
+            font-size: 40px; font-weight: bold;
+            width: 80px; height: 80px;
+            display: flex; align-items: center; justify-content: center;
+            user-select: none; -webkit-user-select: none; touch-action: none;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
             transition: background 0.1s;
         }
         .control-btn:active {
-            background: rgba(255, 255, 255, 0.6); /* 누르고 있을 때 밝아짐 */
+            background: rgba(255, 255, 255, 0.6);
             transform: scale(0.95);
         }
         #left-btn { bottom: 30px; left: 30px; }
         #right-btn { bottom: 30px; left: 130px; }
         #jump-btn { 
             bottom: 30px; right: 30px; 
-            border-radius: 50%; /* 점프 버튼은 원형 */
-            width: 90px; height: 90px;
+            border-radius: 50%; width: 90px; height: 90px;
             font-size: 50px;
             background: rgba(255, 220, 100, 0.4);
             border-color: rgba(255, 220, 100, 0.9);
@@ -79,7 +67,6 @@
     
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
-    <!-- 🎮 모바일 컨트롤 버튼 -->
     <div id="mobile-controls">
         <div id="left-btn" class="control-btn">◀</div>
         <div id="right-btn" class="control-btn">▶</div>
@@ -92,7 +79,6 @@
         const scoreEl = document.getElementById('score');
         const livesEl = document.getElementById('lives');
         
-        // 버튼 요소 가져오기
         const leftBtn = document.getElementById('left-btn');
         const rightBtn = document.getElementById('right-btn');
         const jumpBtn = document.getElementById('jump-btn');
@@ -103,7 +89,11 @@
             enemyYRange: 540,
             coinSpeed: 4,
             playerMoveSpeed: 6,
-            gravity: 0.6
+            gravity: 0.6,
+            // ########## [추가] 아이템 관련 설정 ##########
+            heartSpawnRate: 0.003, // 코인보다 훨씬 적게 나옴 (희귀)
+            heartSpeed: 5
+            // ##########################################
         };
 
         let isImgLoaded = false;
@@ -111,13 +101,18 @@
         playerImg.onload = () => { isImgLoaded = true; };
         playerImg.src = 'myCharacter.png'; 
 
-        let gameState = { score: 0, lives: 3, gameRunning: true };
+        // ########## [수정] 랭킹 저장을 위한 상태 플래그 추가 ##########
+        let gameState = { score: 0, lives: 3, gameRunning: true, rankSaved: false };
+        // ########################################################
+        
         const player = { x: 100, y: 450, width: 70, height: 90, vy: 0, speed: gameConfig.playerMoveSpeed };
-        let enemies = [], coins = [], keys = {};
+        
+        // ########## [수정] hearts 배열 추가 ##########
+        let enemies = [], coins = [], hearts = [], keys = {};
+        // ##########################################
 
         function handleJump() { if (gameState.gameRunning) player.vy = -12; }
 
-        // ⌨️ 키보드 이벤트 (PC용)
         document.addEventListener('keydown', (e) => {
             keys[e.code] = true;
             if (e.code === 'Space' || e.code === 'ArrowUp') handleJump();
@@ -125,21 +120,16 @@
         });
         document.addEventListener('keyup', (e) => keys[e.code] = false);
 
-        // 📱 버튼 터치 이벤트 (모바일용)
-        // 왼쪽 버튼
         leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys['ArrowLeft'] = true; }, { passive: false });
         leftBtn.addEventListener('touchend', () => keys['ArrowLeft'] = false);
         leftBtn.addEventListener('touchcancel', () => keys['ArrowLeft'] = false);
         
-        // 오른쪽 버튼
         rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys['ArrowRight'] = true; }, { passive: false });
         rightBtn.addEventListener('touchend', () => keys['ArrowRight'] = false);
         rightBtn.addEventListener('touchcancel', () => keys['ArrowRight'] = false);
         
-        // 점프 버튼 (클릭할 때마다 점프)
         jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleJump(); }, { passive: false });
         
-        // 마우스로도 버튼 클릭 가능하게 (PC에서 마우스로 버튼 누를 수도 있음)
         leftBtn.addEventListener('mousedown', () => keys['ArrowLeft'] = true);
         leftBtn.addEventListener('mouseup', () => keys['ArrowLeft'] = false);
         leftBtn.addEventListener('mouseleave', () => keys['ArrowLeft'] = false);
@@ -150,10 +140,37 @@
         
         jumpBtn.addEventListener('mousedown', handleJump);
 
+        // ########## [추가] 로컬 스토리지 랭킹 관련 함수 ##########
+        function saveRanking(finalScore) {
+            const RANK_KEY = 'research_game_ranking';
+            let ranks = JSON.parse(localStorage.getItem(RANK_KEY) || '[]');
+            
+            // 현재 점수 추가
+            const date = new Date();
+            const dateStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${date.getMinutes()}`;
+            ranks.push({ score: finalScore, date: dateStr });
+            
+            // 점수 내림차순 정렬
+            ranks.sort((a, b) => b.score - a.score);
+            
+            // 상위 5등만 유지
+            ranks = ranks.slice(0, 5);
+            
+            localStorage.setItem(RANK_KEY, JSON.stringify(ranks));
+            return ranks;
+        }
+
+        function getRanking() {
+            return JSON.parse(localStorage.getItem('research_game_ranking') || '[]');
+        }
+        // ######################################################
+
         function resetGame() {
-            gameState = { score: 0, lives: 3, gameRunning: true };
+            // ########## [수정] 초기화 시 rankSaved 플래그와 hearts 초기화 ##########
+            gameState = { score: 0, lives: 3, gameRunning: true, rankSaved: false };
             player.x = 100; player.y = 450; player.vy = 0;
-            enemies = []; coins = [];
+            enemies = []; coins = []; hearts = [];
+            // ###############################################################
         }
 
         function update() {
@@ -167,13 +184,22 @@
             if (player.y >= 450) { player.y = 450; player.vy = 0; }
             if (player.y <= 0) { player.y = 0; player.vy = 0; }
 
+            // 적 생성
             if (Math.random() < gameConfig.enemySpawnRate) {
                 enemies.push({ x: canvas.width, y: Math.random() * gameConfig.enemyYRange, width: 45, height: 45, speed: gameConfig.enemySpeed + Math.random() * 2 });
             }
+            // 코인 생성
             if (Math.random() < 0.02) {
                 coins.push({ x: canvas.width, y: 50 + Math.random() * 400, width: 40, height: 40, speed: gameConfig.coinSpeed });
             }
 
+            // ########## [추가] 하트(목숨) 아이템 생성 로직 ##########
+            if (Math.random() < gameConfig.heartSpawnRate) {
+                hearts.push({ x: canvas.width, y: 50 + Math.random() * 350, width: 40, height: 40, speed: gameConfig.heartSpeed });
+            }
+            // ###################################################
+
+            // 적 충돌 처리
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const enemy = enemies[i];
                 enemy.x -= enemy.speed;
@@ -186,6 +212,7 @@
                 } else if (enemy.x < -100) enemies.splice(i, 1);
             }
 
+            // 코인 충돌 처리
             for (let i = coins.length - 1; i >= 0; i--) {
                 const coin = coins[i];
                 coin.x -= coin.speed;
@@ -196,21 +223,41 @@
                 } else if (coin.x < -100) coins.splice(i, 1);
             }
 
+            // ########## [추가] 하트 아이템 충돌 및 이동 처리 ##########
+            for (let i = hearts.length - 1; i >= 0; i--) {
+                const heart = hearts[i];
+                heart.x -= heart.speed;
+                if (player.x < heart.x + heart.width && player.x + player.width > heart.x &&
+                    player.y < heart.y + heart.height && player.y + player.height > heart.y) {
+                    
+                    // 목숨 1 증가 (최대치 제한 없음, 원하면 Math.min(gameState.lives + 1, 5) 등으로 제한 가능)
+                    gameState.lives++; 
+                    hearts.splice(i, 1);
+                } else if (heart.x < -100) hearts.splice(i, 1);
+            }
+            // #####################################################
+
             scoreEl.textContent = gameState.score.toLocaleString();
             livesEl.textContent = gameState.lives;
         }
 
         function render() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 배경
             ctx.fillStyle = "rgba(255,255,255,0.6)";
             ctx.beginPath(); ctx.arc(200, 150, 40, 0, Math.PI*2); ctx.fill();
             ctx.beginPath(); ctx.arc(240, 140, 50, 0, Math.PI*2); ctx.fill();
+            
+            // 바닥
             ctx.fillStyle = '#4CAF50';
             ctx.fillRect(0, 540, canvas.width, 60);
 
+            // 플레이어
             if (isImgLoaded) ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
             else { ctx.fillStyle = '#FF6B6B'; ctx.fillRect(player.x, player.y, player.width, player.height); }
 
+            // 적 그리기
             ctx.fillStyle = '#FF4757';
             enemies.forEach(en => {
                 ctx.fillRect(en.x, en.y, en.width, en.height);
@@ -218,6 +265,7 @@
                 ctx.fillText('⚡', en.x + 12, en.y + 30); ctx.fillStyle = '#FF4757';
             });
 
+            // 코인 그리기
             coins.forEach(c => {
                 ctx.beginPath(); ctx.fillStyle = '#FDCB6E';
                 ctx.arc(c.x + 20, c.y + 20, 25, 0, Math.PI * 2); ctx.fill();
@@ -227,16 +275,52 @@
                 ctx.fillText('연구비', c.x + 20, c.y + 20);
             });
 
+            // ########## [추가] 하트(목숨) 그리기 ##########
+            hearts.forEach(h => {
+                ctx.font = '40px Arial';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('💗', h.x + 20, h.y + 20);
+            });
+            // ##########################################
+
             if (!gameState.gameRunning) {
-                ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.textAlign = 'center'; ctx.fillStyle = '#FF4757'; ctx.font = 'bold 60px Arial';
-                ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 50);
-                ctx.fillStyle = 'white'; ctx.font = 'bold 35px Arial';
-                ctx.fillText('확보된 총 연구비', canvas.width/2, canvas.height/2 + 20);
-                ctx.fillStyle = '#FFD93D'; ctx.font = 'bold 45px Arial';
-                ctx.fillText(gameState.score.toLocaleString() + ' 원', canvas.width/2, canvas.height/2 + 80);
+                // ########## [추가] 랭킹 저장 및 결과 화면 표시 ##########
+                if (!gameState.rankSaved) {
+                    saveRanking(gameState.score);
+                    gameState.rankSaved = true;
+                }
+
+                ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // 게임 오버 텍스트
+                ctx.textAlign = 'center'; 
+                ctx.fillStyle = '#FF4757'; ctx.font = 'bold 50px Arial';
+                ctx.fillText('GAME OVER', canvas.width/2, 100);
+                
+                ctx.fillStyle = '#FFD93D'; ctx.font = 'bold 30px Arial';
+                ctx.fillText('최종 연구비: ' + gameState.score.toLocaleString() + ' 원', canvas.width/2, 160);
+
+                // 랭킹 보드 그리기
+                const ranks = getRanking();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 24px Arial';
+                ctx.fillText('🏆 명예의 전당 (Top 5) 🏆', canvas.width/2, 230);
+                
+                ctx.font = '18px Arial'; ctx.fillStyle = '#ddd';
+                let startY = 270;
+                ranks.forEach((rank, index) => {
+                    const rankText = `${index + 1}위.  ${rank.score.toLocaleString()}원  (${rank.date})`;
+                    
+                    // 이번 판 점수 강조
+                    if(rank.score === gameState.score && index === 0) ctx.fillStyle = '#00ff00'; // 1등 갱신시 녹색
+                    else if (rank.score === gameState.score) ctx.fillStyle = '#ffff00'; // 내 점수 노란색
+                    else ctx.fillStyle = '#ddd'; // 기본색
+                    
+                    ctx.fillText(rankText, canvas.width/2, startY + (index * 30));
+                });
+
                 ctx.fillStyle = 'white'; ctx.font = '20px Arial';
-                ctx.fillText('새로고침 키를 눌러 다시 도전하세요!', canvas.width/2, canvas.height/2 + 150);
+                ctx.fillText('새로고침(F5) 또는 [R]키를 눌러 다시 도전!', canvas.width/2, 500);
+                // ##################################################
             }
             update();
             requestAnimationFrame(render);
